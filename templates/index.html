@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>{{ title }}</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header class="header">
+    <div class="wrap header-inner">
+      <div>
+        <h1>{{ title }}</h1>
+        <p class="sub">Operação simples: <b>1) cadastrar</b> → <b>2) lançar INITIAL/compra</b> → <b>3) importar CSV</b> → <b>4) agir na lista</b>.</p>
+      </div>
+      <div class="header-actions">
+        <span class="chip">Atualize o CSV quando quiser</span>
+        <span class="chip">Sem notificações (por enquanto)</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    {% if err %}
+      <div class="banner err">
+        {% if err == "data_invalida" %}
+          <b>Data inválida.</b> Use <code>2026-02-26</code> ou <code>26-02-2026</code>.
+        {% elif err == "cliente_nao_existe" %}
+          <b>Kitchen não cadastrada.</b> Cadastre a kitchen antes de lançar estoque.
+        {% elif err == "tipo_invalido" %}
+          <b>Tipo inválido.</b> Selecione INITIAL, PURCHASE ou ADJUST.
+        {% elif err == "csv_invalido" %}
+          <b>CSV inválido.</b> Verifique se tem as colunas <code>kitchen_id</code>, <code>day</code>, <code>labels_used</code>.
+        {% elif err == "arquivo_invalido" %}
+          <b>Arquivo inválido.</b> Envie um arquivo <code>.csv</code>.
+        {% else %}
+          <b>Ocorreu um erro.</b> Tente novamente.
+        {% endif %}
+      </div>
+    {% endif %}
+
+    {% if ok == "importado" %}
+      <div class="banner ok">
+        <b>CSV importado!</b>
+        Atualizados: <b>{{ upserted or "0" }}</b> • Ignorados: <b>{{ skipped or "0" }}</b> • Novas kitchens: <b>{{ new_customers or "0" }}</b>
+        <span class="muted"> (Ignorados = linhas com erro)</span>
+      </div>
+    {% endif %}
+
+    <section class="hero">
+      <div class="hero-card">
+        <div class="kpi">
+          <div class="kpi-label">Total em CRÍTICO</div>
+          <div class="kpi-value">{{ alerts | selectattr("status","equalto","CRÍTICO") | list | length }}</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">Total em ALERTA</div>
+          <div class="kpi-value">{{ alerts | selectattr("status","equalto","ALERTA") | list | length }}</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">Total OK</div>
+          <div class="kpi-value">{{ alerts | selectattr("status","equalto","OK") | list | length }}</div>
+        </div>
+        <div class="hero-tip">
+          <b>Como agir:</b> comece pelos <span class="pill crit">CRÍTICO</span>, depois <span class="pill warn">ALERTA</span>.
+          <div class="muted">Se aparecer “Sem INITIAL”, lance o estoque inicial para essa kitchen.</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid">
+      <div class="card">
+        <div class="card-head">
+          <h2>Passo 1 — (Opcional) Completar dados da Kitchen</h2>
+          <span class="tag">Auto-cadastro via CSV</span>
+        </div>
+
+        <form action="/customers" method="post" class="form">
+          <div class="row">
+            <label>Kitchen ID
+              <input type="number" name="kitchen_id" required placeholder="Ex: 21" />
+            </label>
+            <label>Ativo
+              <select name="is_active">
+                <option value="1" selected>Sim</option>
+                <option value="0">Não</option>
+              </select>
+            </label>
+          </div>
+
+          <label>Nome do cliente (opcional)
+            <input type="text" name="name" placeholder="Ex: Restaurante X" />
+          </label>
+
+          <label>CNPJ (opcional)
+            <input type="text" name="cnpj" placeholder="Somente números ou com pontuação" />
+          </label>
+
+          <div class="row">
+            <label>Alertar com antecedência (dias)
+              <input type="number" name="alert_days" value="7" min="1" />
+            </label>
+            <label>Média móvel (dias)
+              <input type="number" name="avg_window_days" value="90" min="1" />
+            </label>
+          </div>
+
+          <button type="submit" class="btn primary">Salvar Kitchen</button>
+          <p class="hint">Ao importar o CSV, o sistema cria automaticamente kitchens novas (você só completa nome/CNPJ se quiser).</p>
+        </form>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <h2>Passo 2 — Lançar Estoque</h2>
+          <span class="tag">INITIAL / compra / ajuste</span>
+        </div>
+
+        <div class="callout">
+          <b>Regra importante:</b> se a kitchen não tiver <b>INITIAL</b>, ela fica em <b>ALERTA</b> com saldo 0.
+        </div>
+
+        <form action="/ledger" method="post" class="form">
+          <div class="row">
+            <label>Kitchen ID
+              <input type="number" name="kitchen_id" required placeholder="Ex: 21" />
+            </label>
+            <label>Tipo
+              <select name="entry_type" required>
+                <option value="INITIAL">INITIAL (estoque inicial)</option>
+                <option value="PURCHASE">PURCHASE (compra)</option>
+                <option value="ADJUST">ADJUST (ajuste/estorno)</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="row">
+            <label>Data
+              <input type="text" name="entry_date" placeholder="2026-02-26 ou 26-02-2026" required />
+            </label>
+            <label>Quantidade
+              <input type="number" name="quantity" placeholder="Ex: 30000" required />
+            </label>
+          </div>
+
+          <label>Observação (opcional)
+            <input type="text" name="note" placeholder="Ex: Pedido #123 / Go-live" />
+          </label>
+
+          <button type="submit" class="btn primary">Salvar Lançamento</button>
+
+          <details class="hint">
+            <summary>Quando usar cada tipo?</summary>
+            <ul class="bullets">
+              <li><b>INITIAL:</b> o saldo que vale a partir do go-live (uma vez por kitchen; pode refazer lançando outro INITIAL mais recente).</li>
+              <li><b>PURCHASE:</b> novas compras de etiquetas (somar no saldo).</li>
+              <li><b>ADJUST:</b> correção/estorno (pode ser negativo).</li>
+            </ul>
+          </details>
+        </form>
+      </div>
+
+      <div class="card wide">
+        <div class="card-head">
+          <h2>Passo 3 — Importar Consumo (CSV do Metabase)</h2>
+          <span class="tag">Recomendado: 1x/dia</span>
+        </div>
+
+        <div class="row">
+          <form action="/upload" method="post" enctype="multipart/form-data" class="row grow">
+            <input type="file" name="file" accept=".csv" required />
+            <button type="submit" class="btn">Importar CSV</button>
+          </form>
+          <div class="hint">
+            <div><b>Colunas obrigatórias:</b> <code>kitchen_id</code>, <code>day</code> (YYYY-MM-DD), <code>labels_used</code>.</div>
+            <div class="muted">Dica: exporte pelo menos os últimos 120 dias para a média de 90 dias funcionar bem. O CSV pode conter todas as kitchens — o site cadastra automaticamente.</div>
+          </div>
+        </div>
+
+        <details class="hint">
+          <summary>Query sugerida no Metabase (copiar/colar)</summary>
+<pre><code>SELECT
+  l.kitchen_id,
+  to_char(date_trunc('day', lp.created_at)::date, 'YYYY-MM-DD') AS day,
+  COUNT(*)::int AS labels_used
+FROM labelprint lp
+JOIN label l ON l.id = lp.label_id
+WHERE 1=1
+  [[ AND lp.created_at &gt;= {{start}} ]]
+  [[ AND lp.created_at &lt;  {{end}} ]]
+GROUP BY 1, 2
+ORDER BY day DESC;</code></pre>
+        </details>
+      </div>
+
+      <div class="card wide">
+        <div class="card-head">
+          <h2>Passo 4 — Lista de Ação (priorize CRÍTICO → ALERTA)</h2>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Status</th>
+              <th>Kitchen</th>
+              <th>Cliente</th>
+              <th class="num">Saldo</th>
+              <th class="num">Média/dia</th>
+              <th class="num">Ponto reposição</th>
+              <th class="num">Dias restantes</th>
+              <th>Motivo</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for a in alerts %}
+            <tr class="row-{{ a.status }}">
+              <td>
+                {% if a.status == "CRÍTICO" %}
+                  <span class="pill crit">CRÍTICO</span>
+                {% elif a.status == "ALERTA" %}
+                  <span class="pill warn">ALERTA</span>
+                {% else %}
+                  <span class="pill ok">OK</span>
+                {% endif %}
+              </td>
+              <td><b>{{ a.kitchen_id }}</b></td>
+              <td>{{ a.name if a.name else "—" }}</td>
+              <td class="num"><b>{{ a.saldo }}</b></td>
+              <td class="num">{{ "%.2f"|format(a.avg_daily) }}</td>
+              <td class="num">{{ a.reorder_point }}</td>
+              <td class="num">{% if a.days_left is none %}—{% else %}{{ a.days_left }}{% endif %}</td>
+              <td class="small">{{ a.reason }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+
+        {% if alerts|length == 0 %}
+          <div class="empty">
+            Nenhuma kitchen cadastrada ainda. Comece pelo <b>Passo 1</b>.
+          </div>
+        {% endif %}
+      </div>
+
+      <div class="card wide">
+        <div class="card-head">
+          <h2>Kitchen cadastradas</h2>
+          <span class="tag">Criadas automaticamente via CSV</span>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Kitchen</th>
+              <th>Nome</th>
+              <th>CNPJ</th>
+              <th class="num">Alert Days</th>
+              <th class="num">Janela média</th>
+              <th>Ativo</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for c in customers %}
+            <tr>
+              <td><b>{{ c.kitchen_id }}</b></td>
+              <td>{{ c.name if c.name else "—" }}</td>
+              <td>{{ c.cnpj if c.cnpj else "—" }}</td>
+              <td class="num">{{ c.alert_days }}</td>
+              <td class="num">{{ c.avg_window_days }}</td>
+              <td>{{ "Sim" if c.is_active == 1 else "Não" }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+
+        {% if customers|length == 0 %}
+          <div class="empty">
+            Cadastre a primeira kitchen no <b>Passo 1</b>.
+          </div>
+        {% endif %}
+      </div>
+
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="wrap">
+      <p class="muted small">
+        Dica operacional: exporte o CSV do Metabase 1x/dia e faça upload. Depois dá pra automatizar via API quando a infra liberar.
+      </p>
+    </div>
+  </footer>
+</body>
+</html>
